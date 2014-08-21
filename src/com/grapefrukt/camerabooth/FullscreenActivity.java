@@ -6,6 +6,8 @@ import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.hardware.Camera;
 import android.media.CamcorderProfile;
+import android.media.MediaPlayer;
+import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Environment;
@@ -16,14 +18,19 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.View.OnClickListener;
+import android.widget.MediaController;
+import android.widget.VideoView;
 
-public class FullscreenActivity extends Activity implements OnClickListener, SurfaceHolder.Callback {
+public class FullscreenActivity extends Activity implements OnClickListener, SurfaceHolder.Callback, OnCompletionListener {
 	public static final String LOGTAG = "VIDEOCAPTURE";
 
 	private MediaRecorder recorder;
 	private SurfaceHolder holder;
 	private CamcorderProfile camcorderProfile;
 	private Camera camera;	
+	private SurfaceView cameraView;
+	VideoView videoView;
+	private File recordFile;
 	
 	boolean recording = false;
 	boolean usecamera = true;
@@ -42,13 +49,16 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 
 		setContentView(R.layout.activity_fullscreen);
 
-		SurfaceView cameraView = (SurfaceView) findViewById(R.id.CameraView);
+		cameraView = (SurfaceView) findViewById(R.id.CameraView);
 		holder = cameraView.getHolder();
 		holder.addCallback(this);
-		//holder.setType(SurfaceHolder.SURFACE_TYPE_GPU);
 
 		cameraView.setClickable(true);
 		cameraView.setOnClickListener(this);
+		
+		videoView = (VideoView) findViewById(R.id.VideoView);
+		
+		videoView.setOnCompletionListener(this);
 	}
 
 	private void prepareRecorder() {
@@ -56,7 +66,7 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 		recorder.setPreviewDisplay(holder.getSurface());
 		
 		if (usecamera) {
-			camera.unlock();
+			camera.unlock(); // crashes here
 			recorder.setCamera(camera);
 		}
 		
@@ -68,8 +78,10 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 		// This is all very sloppy
 		if (camcorderProfile.fileFormat == MediaRecorder.OutputFormat.MPEG_4) {
         	try {
-				File newFile = File.createTempFile("videocapture", ".mp4", Environment.getExternalStorageDirectory());
-				recorder.setOutputFile(newFile.getAbsolutePath());
+				recordFile = File.createTempFile("videocapture", ".mp4", Environment.getExternalStorageDirectory());
+				recorder.setOutputFile(recordFile.getAbsolutePath());
+				
+				Log.v(LOGTAG, "Recording to: " + recordFile.getAbsolutePath());
 			} catch (IOException e) {
 				Log.v(LOGTAG,"Couldn't create file");
 				e.printStackTrace();
@@ -104,8 +116,18 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 			// recorder.release();
 			recording = false;
 			Log.v(LOGTAG, "Recording Stopped");
+			
+			cameraView.setVisibility(View.INVISIBLE);
+			
+			Log.v(LOGTAG, "Playing back from " + recordFile.getAbsolutePath());
+			videoView.setVideoPath(recordFile.getAbsolutePath());
+			MediaController mediaController = new MediaController(this);
+			videoView.setMediaController(mediaController);
+			videoView.start();
+			
 			// Let's prepareRecorder so we can record again
-			prepareRecorder();
+			//prepareRecorder();			
+			
 		} else {
 			recording = true;
 			recorder.start();
@@ -143,10 +165,13 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 
 			try {
 				Camera.Parameters p = camera.getParameters();
-
-				 p.setPreviewSize(camcorderProfile.videoFrameWidth, camcorderProfile.videoFrameHeight);
-				 p.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
 				
+				p.setPreviewSize(camcorderProfile.videoFrameWidth, camcorderProfile.videoFrameHeight);
+				p.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
+				
+				Log.v(LOGTAG, "width: " + cameraView.getWidth());
+				Log.v(LOGTAG, "height: " + cameraView.getHeight());
+				 
 				camera.setParameters(p);
 				
 				camera.setPreviewDisplay(holder);
@@ -175,6 +200,12 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 			//camera.lock();
 			camera.release();
 		}
-		finish();
+		//finish();
+	}
+
+	@Override
+	public void onCompletion(MediaPlayer mp) {
+		cameraView.setVisibility(View.VISIBLE);
+		prepareRecorder();
 	}
 }
