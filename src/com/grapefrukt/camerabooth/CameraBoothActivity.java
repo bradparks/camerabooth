@@ -3,6 +3,7 @@ package com.grapefrukt.camerabooth;
 import java.io.File;
 import java.io.IOException;
 
+import android.app.ActionBar.LayoutParams;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
@@ -12,9 +13,12 @@ import android.media.AudioManager;
 import android.media.CamcorderProfile;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
+import android.media.MediaPlayer.OnErrorListener;
 import android.media.MediaRecorder;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -22,13 +26,24 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.View.OnClickListener;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
+import android.widget.ImageSwitcher;
+import android.widget.ImageView;
 import android.widget.MediaController;
+import android.widget.ProgressBar;
 import android.widget.VideoView;
+import android.widget.ViewSwitcher.ViewFactory;
 
 import com.grapefrukt.camerabooth.State;
 
-public class CameraBoothActivity extends Activity implements OnClickListener, SurfaceHolder.Callback, OnCompletionListener {
+public class CameraBoothActivity extends Activity implements OnClickListener, SurfaceHolder.Callback, OnCompletionListener, OnErrorListener {
 	public static final String TAG = "VIDEOCAPTURE";
+	
+	public static final int MIN_RECORD_TIME = 2000;
+	public static final int MAX_RECORD_TIME = 6000;
+	public static final int POST_PREVIEW_OKAY_TIME = 5000;
+	public static final int POST_PREVIEW_RESULT_TIME = 2000;
 
 	private MediaRecorder recorder;
 	private SurfaceHolder holder;
@@ -41,7 +56,16 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 	private AudioManager audioManager;
 	private ComponentName remoteControlResponder;
 	
+	private ProgressBar progressBar;
+	private CountDownTimer recordTimer;
+	private CountDownTimer chanceToSaveTimer;
+	private CountDownTimer savedOrDeletedTimer;
+	private long recordStartTime = 0;
+	
+	private ImageSwitcher imageSwitcher;
+	
 	private State state = State.STARTUP;
+	private boolean saveVideoFlag = false;
 	
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -65,11 +89,72 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 		
 		videoView = (VideoView) findViewById(R.id.VideoView);
 		videoView.setOnCompletionListener(this);
+		videoView.setOnErrorListener(this);
 		videoView.setVisibility(View.INVISIBLE);
+		videoView.setMediaController(null); // hides the controls for the video player
+		
+		progressBar = (ProgressBar) findViewById(R.id.RecordProgress);
 		
 		audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 		remoteControlResponder = new ComponentName(getPackageName(), RemoteControlReceiver.class.getName());
 		RemoteControlReceiver.setMain(this);
+		
+		recordTimer = new CountDownTimer(MAX_RECORD_TIME, 16) {
+	        @Override
+	        public void onTick(long millisecondsRemaining) {
+	        	progressBar.setMax(MAX_RECORD_TIME);
+	        	progressBar.setProgress(MAX_RECORD_TIME - (int) millisecondsRemaining);
+	        }
+
+	        @Override
+	        public void onFinish() {
+	        	stopRecording();
+	        }
+	    };
+	    
+	    chanceToSaveTimer = new CountDownTimer(POST_PREVIEW_OKAY_TIME, 16) {
+	        @Override
+	        public void onTick(long millisecondsRemaining) {
+	        	progressBar.setMax(POST_PREVIEW_OKAY_TIME);
+	        	progressBar.setProgress(POST_PREVIEW_OKAY_TIME - (int) millisecondsRemaining);
+	        }
+
+	        @Override
+	        public void onFinish() {
+	        	deleteVideo();
+	        }
+	    };
+	    
+	    savedOrDeletedTimer = new CountDownTimer(POST_PREVIEW_RESULT_TIME, POST_PREVIEW_RESULT_TIME) {
+	        @Override
+	        public void onTick(long millisecondsRemaining) {
+	        	// do nothing
+	        }
+
+	        @Override
+	        public void onFinish() {
+	        	completeSavedOrDeleted();
+	        }
+	    };
+	    
+	    imageSwitcher = (ImageSwitcher) findViewById(R.id.ImageSwitcher);
+	    imageSwitcher.setFactory(new ViewFactory() {
+	    	@Override
+	    	public View makeView() {
+	    		ImageView myView = new ImageView(getApplicationContext());
+	    		myView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+	    		myView.setLayoutParams(new ImageSwitcher.LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.MATCH_PARENT));
+	    		return myView;
+	    	}
+	    });
+	    
+	    // Declare the animations and initialize them
+        Animation in = AnimationUtils.loadAnimation(this,android.R.anim.slide_in_left);
+        Animation out = AnimationUtils.loadAnimation(this,android.R.anim.slide_out_right);
+        
+        // set the animation type to imageSwitcher
+        imageSwitcher.setInAnimation(in);
+        imageSwitcher.setOutAnimation(out);
 	}
 
 	private void prepareRecorder() {
@@ -98,7 +183,7 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 			}
 		}
 		
-		recorder.setMaxDuration(50000); // 50 seconds
+		recorder.setMaxDuration(MAX_RECORD_TIME + 1000); // a timer stops this before this value is reached, added a 1second buffer
 		recorder.setMaxFileSize(20 * 1024 * 1024); // 20 megabytes
 		
 		try {
@@ -111,19 +196,29 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 			finish();
 		}
 		
+		progressBar.setVisibility(View.INVISIBLE);
+		imageSwitcher.setImageResource(R.drawable.screen_splash);
+		
 		state = State.READY;
 	}
 
 	private void startRecording(){
 		if(state != State.READY) return;
+		recordStartTime = System.currentTimeMillis();
+		saveVideoFlag = false;
+		progressBar.setVisibility(View.VISIBLE);
 		state = State.RECORDING;
+		recordTimer.start();
 		recorder.start();
+		imageSwitcher.setImageResource(R.drawable.screen_record);
 		Log.v(TAG, "Recording Started");
 	}
 	
 	private void stopRecording(){
 		if (state != State.RECORDING) return;
-		
+		if (System.currentTimeMillis() - recordStartTime < MIN_RECORD_TIME) return;
+				
+		progressBar.setVisibility(View.INVISIBLE);
 		recorder.stop();
 		
 		try {
@@ -141,6 +236,8 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 		state = State.PLAYBACK;
 		
 		cameraView.setVisibility(View.INVISIBLE);
+		
+		imageSwitcher.setImageResource(R.drawable.screen_playback);
 		
 		Log.v(TAG, "Playing back from " + recordFile.getAbsolutePath());
 		videoView.setVideoPath(recordFile.getAbsolutePath());
@@ -169,41 +266,68 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 		camera.startPreview();
 	}
 	
+	private void playbackComplete() {
+		state = State.POST_PLAYBACK;
+		chanceToSaveTimer.start();
+		imageSwitcher.setImageResource(R.drawable.screens_playback_complete);
+	}
+
+	private void saveVideo() {
+		saveVideoFlag = true;
+		completePostPlayback();
+	}
+	
+	private void deleteVideo(){
+		saveVideoFlag = false;
+		completePostPlayback();
+	}
+	
+	private void completePostPlayback() {
+		if (state != State.POST_PLAYBACK) return;
+		if (!saveVideoFlag){
+			imageSwitcher.setImageResource(R.drawable.screen_post_record_deleted);
+			recordFile.delete();
+		} else {
+			imageSwitcher.setImageResource(R.drawable.screen_post_record_saved);
+		}
+		savedOrDeletedTimer.start();
+	}
+	
+	private void completeSavedOrDeleted(){
+		cameraView.setVisibility(View.VISIBLE);
+		videoView.setVisibility(View.INVISIBLE);
+	}
+	
 	public void surfaceCreated(SurfaceHolder holder) {
-		Log.v(TAG, "surfaceCreated");
-		
 		camera = Camera.open(1);
 		setupCameraPreview();
 	}
 	
 	public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-		Log.v(TAG, "surfaceChanged");
-
-		if (state == State.READY){
-			camera.stopPreview();
-		}
-		
+		if (state == State.READY) camera.stopPreview();
 		setupCameraPreview();
 		prepareRecorder();	
 	}
 	
 	public void surfaceDestroyed(SurfaceHolder holder) {
-		Log.v(TAG, "surfaceDestroyed");
-		
 		if (state == State.RECORDING) stopRecording();
-		
 		state = State.LOST;
-		
 		recorder.release();
 		camera.release();
 	}
 
 	@Override
 	public void onCompletion(MediaPlayer mp) {
-		cameraView.setVisibility(View.VISIBLE);
-		videoView.setVisibility(View.INVISIBLE);
+		playbackComplete();
 	}
 	
+	@Override
+    public boolean onError(MediaPlayer mp, int what, int extra) {
+        Log.d(TAG, "setOnErrorListener ");
+        playbackComplete();
+        return true;
+    }
+
 	@Override
 	protected void onResume() {
 		super.onResume();
@@ -218,16 +342,16 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 	
 	@Override
 	public void onClick(View v) {
-		toggleRecording();
+		handleInput();
 	}
 
 	public void setHeadsetButtonState(boolean isDown) {
 		if (isDown) return;
 		
-		toggleRecording();		
+		handleInput();		
 	}
 	
-	private void toggleRecording() {
+	private void handleInput() {
 		switch (state) {
 			case READY:
 				startRecording();
@@ -235,6 +359,8 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 			case RECORDING:
 				stopRecording();
 				break;
+			case POST_PLAYBACK:
+				saveVideo();
 			default:
 				break;
 		}		

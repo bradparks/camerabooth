@@ -5,5 +5,6 @@ public enum State {
 	READY,
 	RECORDING,
 	PLAYBACK,
+	POST_PLAYBACK,
 	LOST,
 }

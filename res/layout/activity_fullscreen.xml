@@ -2,25 +2,45 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
+    android:clickable="false"
     android:keepScreenOn="true"
+    android:longClickable="false"
     android:orientation="vertical" >
 
 <SurfaceView
     android:id="@+id/CameraView"
     android:layout_width="match_parent"
-    android:layout_height="match_parent" >
-</SurfaceView>
+    android:layout_height="match_parent" 
+    android:scaleType="centerCrop"
+/>
 
 <VideoView
     android:id="@+id/VideoView"
     android:layout_width="match_parent"
-    android:layout_height="match_parent" />
+    android:layout_height="match_parent" 
+    android:scaleType="centerCrop"
+/>
 
-<TextView
-    android:id="@+id/textView1"
-    android:layout_width="wrap_content"
+<ImageSwitcher
+    android:id="@+id/ImageSwitcher"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:scaleType="centerCrop" 
+/>
+
+<ProgressBar
+    android:id="@+id/RecordProgress"
+    style="?android:attr/progressBarStyleHorizontal"
+    android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:text="@string/recording_large"
-    android:textAppearance="?android:attr/textAppearanceLarge" />
+    android:layout_alignParentBottom="true"
+    android:layout_marginBottom="27dp"
+    android:indeterminate="false"
+    android:max="100"
+    android:paddingLeft="50dp"
+    android:paddingRight="50dp"
+    android:progress="0" 
+    android:progressDrawable="@drawable/redprogress" 
+/>
 
 </RelativeLayout>
