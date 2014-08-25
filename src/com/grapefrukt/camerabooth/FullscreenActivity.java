@@ -2,6 +2,7 @@ package com.grapefrukt.camerabooth;
 
 import java.io.File;
 import java.io.IOException;
+
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.hardware.Camera;
@@ -29,12 +30,11 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 	private CamcorderProfile camcorderProfile;
 	private Camera camera;	
 	private SurfaceView cameraView;
-	VideoView videoView;
+	private VideoView videoView;
 	private File recordFile;
 	
-	boolean recording = false;
-	boolean usecamera = true;
-	boolean previewRunning = false;
+	private boolean recording = false;
+	private boolean previewRunning = false;
 	
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -48,7 +48,7 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 		camcorderProfile = CamcorderProfile.get(CamcorderProfile.QUALITY_720P);
 
 		setContentView(R.layout.activity_fullscreen);
-
+		
 		cameraView = (SurfaceView) findViewById(R.id.CameraView);
 		holder = cameraView.getHolder();
 		holder.addCallback(this);
@@ -57,21 +57,19 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 		cameraView.setOnClickListener(this);
 		
 		videoView = (VideoView) findViewById(R.id.VideoView);
-		
 		videoView.setOnCompletionListener(this);
+		videoView.setVisibility(View.INVISIBLE);
 	}
 
 	private void prepareRecorder() {
         recorder = new MediaRecorder();
 		recorder.setPreviewDisplay(holder.getSurface());
 		
-		if (usecamera) {
-			camera.unlock(); // crashes here
-			recorder.setCamera(camera);
-		}
+		camera.unlock();
+		recorder.setCamera(camera);
 		
 		recorder.setAudioSource(MediaRecorder.AudioSource.DEFAULT);
-		recorder.setVideoSource(MediaRecorder.VideoSource.DEFAULT);
+		recorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
 
 		recorder.setProfile(camcorderProfile);
 
@@ -90,7 +88,7 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 		}
 		
 		recorder.setMaxDuration(50000); // 50 seconds
-		recorder.setMaxFileSize(20 * 1024 * 1024); // 20 megs
+		recorder.setMaxFileSize(20 * 1024 * 1024); // 20 megabytes
 		
 		try {
 			recorder.prepare();
@@ -106,14 +104,13 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 	public void onClick(View v) {
 		if (recording) {
 			recorder.stop();
-			if (usecamera) {
-				try {
-					camera.reconnect();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			}			
-			// recorder.release();
+			
+			try {
+				camera.reconnect();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		
 			recording = false;
 			Log.v(LOGTAG, "Recording Stopped");
 			
@@ -124,9 +121,7 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 			MediaController mediaController = new MediaController(this);
 			videoView.setMediaController(mediaController);
 			videoView.start();
-			
-			// Let's prepareRecorder so we can record again
-			//prepareRecorder();			
+			videoView.setVisibility(View.VISIBLE);
 			
 		} else {
 			recording = true;
@@ -138,51 +133,40 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 	public void surfaceCreated(SurfaceHolder holder) {
 		Log.v(LOGTAG, "surfaceCreated");
 		
-		if (usecamera) {
-			camera = Camera.open();
-			
-			try {
-				camera.setPreviewDisplay(holder);
-				camera.startPreview();
-				previewRunning = true;
-			}
-			catch (IOException e) {
-				Log.e(LOGTAG,e.getMessage());
-				e.printStackTrace();
-			}	
-		}		
-		
+		camera = Camera.open(1);
+		setupCameraPreview();
 	}
 
+	private void setupCameraPreview() {
+		// TODO Auto-generated method stub
+		Camera.Parameters p = camera.getParameters();
+		
+		p.setPreviewSize(1280, 720);
+		//p.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
+		 
+		camera.setParameters(p);
+		
+		try {
+			camera.setPreviewDisplay(holder);
+		}
+		catch (IOException e) {
+			Log.e(LOGTAG,e.getMessage());
+			e.printStackTrace();
+		}
+		
+		camera.startPreview();
+		previewRunning = true;
+	}
 
 	public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
 		Log.v(LOGTAG, "surfaceChanged");
 
-		if (!recording && usecamera) {
+		if (!recording) {
 			if (previewRunning){
 				camera.stopPreview();
 			}
-
-			try {
-				Camera.Parameters p = camera.getParameters();
-				
-				p.setPreviewSize(camcorderProfile.videoFrameWidth, camcorderProfile.videoFrameHeight);
-				p.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
-				
-				Log.v(LOGTAG, "width: " + cameraView.getWidth());
-				Log.v(LOGTAG, "height: " + cameraView.getHeight());
-				 
-				camera.setParameters(p);
-				
-				camera.setPreviewDisplay(holder);
-				camera.startPreview();
-				previewRunning = true;
-			}
-			catch (IOException e) {
-				Log.e(LOGTAG,e.getMessage());
-				e.printStackTrace();
-			}	
 			
+			setupCameraPreview();
 			prepareRecorder();	
 		}
 	}
@@ -195,17 +179,16 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 			recording = false;
 		}
 		recorder.release();
-		if (usecamera) {
-			previewRunning = false;
-			//camera.lock();
-			camera.release();
-		}
+		
+		previewRunning = false;
+	
+		camera.release();
 		//finish();
 	}
 
 	@Override
 	public void onCompletion(MediaPlayer mp) {
 		cameraView.setVisibility(View.VISIBLE);
-		prepareRecorder();
+		videoView.setVisibility(View.INVISIBLE);
 	}
 }

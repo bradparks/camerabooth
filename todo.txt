@@ -1,0 +1,6 @@
+Tryck på knappen
+Räknar ned, 3, 2, 1
+Spelar in typ 5 sekunder eller tills knappen släpps
+Videon spelas upp
+Tryck inom 10 sekunder för att slänga
+Gör inget för att spara
