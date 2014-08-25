@@ -4,8 +4,11 @@ import java.io.File;
 import java.io.IOException;
 
 import android.app.Activity;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.hardware.Camera;
+import android.media.AudioManager;
 import android.media.CamcorderProfile;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
@@ -22,8 +25,10 @@ import android.view.View.OnClickListener;
 import android.widget.MediaController;
 import android.widget.VideoView;
 
-public class FullscreenActivity extends Activity implements OnClickListener, SurfaceHolder.Callback, OnCompletionListener {
-	public static final String LOGTAG = "VIDEOCAPTURE";
+import com.grapefrukt.camerabooth.State;
+
+public class CameraBoothActivity extends Activity implements OnClickListener, SurfaceHolder.Callback, OnCompletionListener {
+	public static final String TAG = "VIDEOCAPTURE";
 
 	private MediaRecorder recorder;
 	private SurfaceHolder holder;
@@ -33,8 +38,10 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 	private VideoView videoView;
 	private File recordFile;
 	
-	private boolean recording = false;
-	private boolean previewRunning = false;
+	private AudioManager audioManager;
+	private ComponentName remoteControlResponder;
+	
+	private State state = State.STARTUP;
 	
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -59,6 +66,10 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 		videoView = (VideoView) findViewById(R.id.VideoView);
 		videoView.setOnCompletionListener(this);
 		videoView.setVisibility(View.INVISIBLE);
+		
+		audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+		remoteControlResponder = new ComponentName(getPackageName(), RemoteControlReceiver.class.getName());
+		RemoteControlReceiver.setMain(this);
 	}
 
 	private void prepareRecorder() {
@@ -79,9 +90,9 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 				recordFile = File.createTempFile("videocapture", ".mp4", Environment.getExternalStorageDirectory());
 				recorder.setOutputFile(recordFile.getAbsolutePath());
 				
-				Log.v(LOGTAG, "Recording to: " + recordFile.getAbsolutePath());
+				Log.v(TAG, "Recording to: " + recordFile.getAbsolutePath());
 			} catch (IOException e) {
-				Log.v(LOGTAG,"Couldn't create file");
+				Log.v(TAG,"Couldn't create file");
 				e.printStackTrace();
 				finish();
 			}
@@ -99,46 +110,47 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 			e.printStackTrace();
 			finish();
 		}
+		
+		state = State.READY;
 	}
 
-	public void onClick(View v) {
-		if (recording) {
-			recorder.stop();
-			
-			try {
-				camera.reconnect();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
+	private void startRecording(){
+		if(state != State.READY) return;
+		state = State.RECORDING;
+		recorder.start();
+		Log.v(TAG, "Recording Started");
+	}
+	
+	private void stopRecording(){
+		if (state != State.RECORDING) return;
 		
-			recording = false;
-			Log.v(LOGTAG, "Recording Stopped");
-			
-			cameraView.setVisibility(View.INVISIBLE);
-			
-			Log.v(LOGTAG, "Playing back from " + recordFile.getAbsolutePath());
-			videoView.setVideoPath(recordFile.getAbsolutePath());
-			MediaController mediaController = new MediaController(this);
-			videoView.setMediaController(mediaController);
-			videoView.start();
-			videoView.setVisibility(View.VISIBLE);
-			
-		} else {
-			recording = true;
-			recorder.start();
-			Log.v(LOGTAG, "Recording Started");
+		recorder.stop();
+		
+		try {
+			camera.reconnect();
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
-	}
-
-	public void surfaceCreated(SurfaceHolder holder) {
-		Log.v(LOGTAG, "surfaceCreated");
 		
-		camera = Camera.open(1);
-		setupCameraPreview();
+		Log.v(TAG, "Recording Stopped");
+		
+		showPlayback();
+	}
+	
+	private void showPlayback() {
+		state = State.PLAYBACK;
+		
+		cameraView.setVisibility(View.INVISIBLE);
+		
+		Log.v(TAG, "Playing back from " + recordFile.getAbsolutePath());
+		videoView.setVideoPath(recordFile.getAbsolutePath());
+		MediaController mediaController = new MediaController(this);
+		videoView.setMediaController(mediaController);
+		videoView.start();
+		videoView.setVisibility(View.VISIBLE);
 	}
 
 	private void setupCameraPreview() {
-		// TODO Auto-generated method stub
 		Camera.Parameters p = camera.getParameters();
 		
 		p.setPreviewSize(1280, 720);
@@ -150,40 +162,40 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 			camera.setPreviewDisplay(holder);
 		}
 		catch (IOException e) {
-			Log.e(LOGTAG,e.getMessage());
+			Log.e(TAG,e.getMessage());
 			e.printStackTrace();
 		}
 		
 		camera.startPreview();
-		previewRunning = true;
 	}
-
+	
+	public void surfaceCreated(SurfaceHolder holder) {
+		Log.v(TAG, "surfaceCreated");
+		
+		camera = Camera.open(1);
+		setupCameraPreview();
+	}
+	
 	public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-		Log.v(LOGTAG, "surfaceChanged");
+		Log.v(TAG, "surfaceChanged");
 
-		if (!recording) {
-			if (previewRunning){
-				camera.stopPreview();
-			}
-			
-			setupCameraPreview();
-			prepareRecorder();	
+		if (state == State.READY){
+			camera.stopPreview();
 		}
+		
+		setupCameraPreview();
+		prepareRecorder();	
 	}
-
 	
 	public void surfaceDestroyed(SurfaceHolder holder) {
-		Log.v(LOGTAG, "surfaceDestroyed");
-		if (recording) {
-			recorder.stop();
-			recording = false;
-		}
-		recorder.release();
+		Log.v(TAG, "surfaceDestroyed");
 		
-		previewRunning = false;
-	
+		if (state == State.RECORDING) stopRecording();
+		
+		state = State.LOST;
+		
+		recorder.release();
 		camera.release();
-		//finish();
 	}
 
 	@Override
@@ -191,4 +203,41 @@ public class FullscreenActivity extends Activity implements OnClickListener, Sur
 		cameraView.setVisibility(View.VISIBLE);
 		videoView.setVisibility(View.INVISIBLE);
 	}
+	
+	@Override
+	protected void onResume() {
+		super.onResume();
+		audioManager.registerMediaButtonEventReceiver(remoteControlResponder);
+	}
+	
+	@Override
+	protected void onPause() {
+		audioManager.unregisterMediaButtonEventReceiver(remoteControlResponder);
+		super.onPause();
+	}
+	
+	@Override
+	public void onClick(View v) {
+		toggleRecording();
+	}
+
+	public void setHeadsetButtonState(boolean isDown) {
+		if (isDown) return;
+		
+		toggleRecording();		
+	}
+	
+	private void toggleRecording() {
+		switch (state) {
+			case READY:
+				startRecording();
+				break;
+			case RECORDING:
+				stopRecording();
+				break;
+			default:
+				break;
+		}		
+	}
+
 }
