@@ -40,8 +40,10 @@ import com.grapefrukt.camerabooth.State;
 public class CameraBoothActivity extends Activity implements OnClickListener, SurfaceHolder.Callback, OnCompletionListener, OnErrorListener {
 	public static final String TAG = "VIDEOCAPTURE";
 	
+	public static final int MIN_WAIT_BEFORE_RECORD_TIME = 1000;
 	public static final int MIN_RECORD_TIME = 2000;
 	public static final int MAX_RECORD_TIME = 6000;
+	public static final int RECORD_TIME_BAR_FUDGE = 500;
 	public static final int POST_PREVIEW_OKAY_TIME = 5000;
 	public static final int POST_PREVIEW_RESULT_TIME = 2000;
 
@@ -61,6 +63,7 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 	private CountDownTimer chanceToSaveTimer;
 	private CountDownTimer savedOrDeletedTimer;
 	private long recordStartTime = 0;
+	private long resetTime = 0;
 	
 	private ImageSwitcher imageSwitcher;
 	
@@ -102,8 +105,8 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 		recordTimer = new CountDownTimer(MAX_RECORD_TIME, 16) {
 	        @Override
 	        public void onTick(long millisecondsRemaining) {
-	        	progressBar.setMax(MAX_RECORD_TIME);
-	        	progressBar.setProgress(MAX_RECORD_TIME - (int) millisecondsRemaining);
+	        	progressBar.setMax(MAX_RECORD_TIME - RECORD_TIME_BAR_FUDGE);
+	        	progressBar.setProgress(MAX_RECORD_TIME - (int) millisecondsRemaining - RECORD_TIME_BAR_FUDGE);
 	        }
 
 	        @Override
@@ -155,6 +158,9 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
         // set the animation type to imageSwitcher
         imageSwitcher.setInAnimation(in);
         imageSwitcher.setOutAnimation(out);
+        
+        imageSwitcher.setClickable(true);
+        imageSwitcher.setOnClickListener(this);
 	}
 
 	private void prepareRecorder() {
@@ -203,7 +209,9 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 	}
 
 	private void startRecording(){
-		if(state != State.READY) return;
+		if (state != State.READY) return;
+		if (System.currentTimeMillis() - resetTime < MIN_WAIT_BEFORE_RECORD_TIME) return;
+		
 		recordStartTime = System.currentTimeMillis();
 		saveVideoFlag = false;
 		progressBar.setVisibility(View.VISIBLE);
@@ -245,6 +253,7 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 		videoView.setMediaController(mediaController);
 		videoView.start();
 		videoView.setVisibility(View.VISIBLE);
+		videoView.setMediaController(null);
 	}
 
 	private void setupCameraPreview() {
@@ -287,13 +296,17 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 		if (!saveVideoFlag){
 			imageSwitcher.setImageResource(R.drawable.screen_post_record_deleted);
 			recordFile.delete();
+			Log.e(TAG, "deleted video");
 		} else {
 			imageSwitcher.setImageResource(R.drawable.screen_post_record_saved);
+			Log.e(TAG, "saved video");
 		}
 		savedOrDeletedTimer.start();
+		state = State.POST_PLAYBACK_COMPLETE;
 	}
 	
 	private void completeSavedOrDeleted(){
+		if (state != State.POST_PLAYBACK_COMPLETE) return;
 		cameraView.setVisibility(View.VISIBLE);
 		videoView.setVisibility(View.INVISIBLE);
 	}
@@ -301,6 +314,7 @@ public class CameraBoothActivity extends Activity implements OnClickListener, Su
 	public void surfaceCreated(SurfaceHolder holder) {
 		camera = Camera.open(1);
 		setupCameraPreview();
+		resetTime = System.currentTimeMillis();
 	}
 	
 	public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
